@@ -289,15 +289,40 @@ i2b2.CRC.ctrlr.QueryStatus.prototype = function() {
 								var value = i2b2.UI.cfg.floorThresholdText + i2b2.UI.cfg.floorThresholdNumber.toString();
 							}
 						}
+						// N.Benik - Override the display value if specified by server setting the "display" attribute
+						var displayValue = value;
+                        if (typeof params[i2].attributes.display !== 'undefined') {
+						    displayValue = params[i2].attributes.display.textContent;
+                        }
+						var graphValue = displayValue;
+                       if (typeof params[i2].attributes.comment !== 'undefined') {
+						    displayValue += ' &nbsp; <span style="color:#090;">[' + params[i2].attributes.comment.textContent + ']<span>';
+						    graphValue += '|' + params[i2].attributes.comment.textContent;
+                        }
+
 						// display a line of results in the status box
-						self.dispDIV.innerHTML += "<div class=\'" + description + "\' style=\"clear: both; margin-left: 20px; float: left; height: 16px; line-height: 16px;\">" + params[i2].getAttribute("column") + ": <font color=\"#0000dd\">" + value  + "</font></div>";  //Query Report BG
-						sCompiledResultsTest += params[i2].getAttribute("column") + " : " + value + "\n"; //snm0
+						self.dispDIV.innerHTML += "<div class=\'" + description + "\' style=\"clear: both; margin-left: 20px; float: left; height: 16px; line-height: 16px;\">" + params[i2].getAttribute("column") + ": <font color=\"#0000dd\">" + displayValue + "</font></div>";  //Query Report BG
+
+						//sCompiledResultsTest += params[i2].getAttribute("column").substring(0,20) + " : " + value + "\n"; //snm0
+						if (params[i2].getAttribute("column") == 'patient_count') {
+							sCompiledResultsTest += params[i2].getAttribute("column").substring(0,20) + " : " + graphValue + "\n"; //snm0
+						} else {
+						sCompiledResultsTest += params[i2].getAttribute("column").substring(0,20) + " : " + value + "\n"; //snm0
+						}
 					}
 					var ri_id = i2b2.h.XPath(temp, 'descendant-or-self::result_instance_id')[0].firstChild.nodeValue;
 				}
 				//alert(sCompiledResultsTest); //snm0 
 				i2b2.CRC.view.graphs.createGraphs("infoQueryStatusChart", sCompiledResultsTest, i2b2.CRC.view.graphs.bIsSHRINE);
-				if (i2b2.CRC.view.graphs.bisGTIE8) i2b2.CRC.view.status.selectTab('graphs');
+				if (i2b2.CRC.view.graphs.bisGTIE8) {
+					// Resize the query status box depending on whether breakdowns are included
+					if (sCompiledResultsTest.includes("breakdown"))
+						i2b2.CRC.cfg.config.ui.statusBox = i2b2.CRC.cfg.config.ui.largeStatusBox; 
+						else i2b2.CRC.cfg.config.ui.statusBox = i2b2.CRC.cfg.config.ui.defaultStatusBox;
+					i2b2.CRC.view.status.selectTab('graphs'); 
+					//$(window).trigger('resize');
+					window.dispatchEvent(new Event('resize'));	
+				}	
 				//self.dispDIV.innerHTML += this.dispMsg;
 			}
 		}
@@ -418,6 +443,7 @@ i2b2.CRC.ctrlr.QueryStatus.prototype = function() {
 								// Concepts
 								for (var i2=0; i2 < panel_list[p2].items.length; i2++) {
 									sdxData[0] = panel_list[p2].items[i2];
+									if (sdxData[0].sdxInfo.sdxType == "CONCPT")
 									i2b2.Timeline.conceptDropped(sdxData, false); // nw096 - turn off dialogs when auto-generating timeline
 								}
 							}
@@ -497,13 +523,16 @@ i2b2.CRC.ctrlr.QueryStatus.prototype = function() {
 		if (private_singleton_isRunning) {
 			try {
 				var self = i2b2.CRC.ctrlr.currentQueryStatus;
-				i2b2.CRC.ctrlr.history.queryDeleteNoPrompt(self.QM.id);
-					clearInterval(private_refreshInterrupt);
-					private_refreshInterrupt = false;
-					private_singleton_isRunning = false;
-					$('runBoxText').innerHTML = "Run Query";
-					self.dispDIV.innerHTML += '<div style="clear:both; height:16px; line-height:16px; text-align:center; color:r#ff0000;">QUERY CANCELLED</div>';
-					i2b2.CRC.ctrlr.currentQueryStatus = false; 
+				//if(i2b2.CRC.ctrlr.deleteCurrentQuery.QM !== false){ // WEBCLIENT-211
+				if (i2b2.CRC.ctrlr.deleteCurrentQuery && i2b2.CRC.ctrlr.deleteCurrentQuery.QM !== false) { // BD2K/BD2K-79 & I2B2/WEBCLIENT-211
+					i2b2.CRC.ctrlr.history.queryDeleteNoPrompt(i2b2.CRC.ctrlr.deleteCurrentQuery.QM);
+				}
+				clearInterval(private_refreshInterrupt);
+				private_refreshInterrupt = false;
+				private_singleton_isRunning = false;
+				$('runBoxText').innerHTML = "Run Query";
+				self.dispDIV.innerHTML += '<div style="clear:both; height:16px; line-height:16px; text-align:center; color:r#ff0000;">QUERY CANCELLED</div>';
+				i2b2.CRC.ctrlr.currentQueryStatus = false;
 			} catch (e) {}	
 		}
 	}
@@ -513,6 +542,8 @@ i2b2.CRC.ctrlr.QueryStatus.prototype = function() {
 		if (private_singleton_isRunning) { return false; }
 		private_singleton_isRunning = true;
 		self.dispDIV.innerHTML = '<b>Processing Query: "'+this.name+'"</b>';
+		i2b2.CRC.ctrlr.deleteCurrentQuery.QM = false; // WEBCLIENT-211
+		i2b2.CRC.ctrlr.deleteCurrentQuery.cancelled = false;
 		self.QM.name = this.name; 
 		self.QRS = {};
 		 self.QI = {};
@@ -556,6 +587,11 @@ i2b2.CRC.ctrlr.QueryStatus.prototype = function() {
 					}
 					var temp = results.refXML.getElementsByTagName('query_master')[0];
 					self.QM.id = i2b2.h.getXNodeVal(temp, 'query_master_id');
+					i2b2.CRC.ctrlr.deleteCurrentQuery.QM = self.QM.id;
+					// Check if user cancelled query  // WEBCLIENT-211
+					if((i2b2.CRC.ctrlr.deleteCurrentQuery.QM !== false) && i2b2.CRC.ctrlr.deleteCurrentQuery.cancelled){
+						i2b2.CRC.ctrlr.history.queryDeleteNoPrompt(i2b2.CRC.ctrlr.deleteCurrentQuery.QM);
+					}
 					//Query Report BG
 					//Update the userid element when query is run first time
 					var userId = i2b2.h.getXNodeVal(temp,'user_id');
@@ -621,12 +657,16 @@ i2b2.CRC.ctrlr.QueryStatus.prototype = function() {
 							} catch	(e) {}
 						}
 						private_singleton_isRunning = false;
+						
 					} else {
 						// another poll is required
-						setTimeout("i2b2.CRC.ctrlr.currentQueryStatus.pollStatus()", this.polling_interval);
+						if(i2b2.CRC.ctrlr.currentQueryStatus !== false){ // WEBCLIENT-211
+							setTimeout("i2b2.CRC.ctrlr.currentQueryStatus.pollStatus()", this.polling_interval);
+						}
 					}				
 				}
 			} catch(e){
+				
 				i2b2.CRC.ctrlr.currentQueryStatus.cancelQuery();
 				i2b2.CRC.ctrlr.currentQueryStatus = false;
 			}
@@ -672,4 +712,7 @@ i2b2.CRC.ctrlr.QueryStatus.prototype = function() {
 }();
 
 i2b2.CRC.ctrlr.currentQueryStatus = false; 
-
+i2b2.CRC.ctrlr.deleteCurrentQuery = {
+	QM : false,
+	cancelled : false
+};
