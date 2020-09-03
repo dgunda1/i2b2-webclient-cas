@@ -216,6 +216,17 @@ i2b2.h.HideBreak = function(inStrValue) {
 };
 
 
+i2b2.h.HideBreak = function(inStrValue) {
+	if (typeof inStrValue == "number") {
+		var t = inStrValue.toString();
+	} else {
+		var t = new String(inStrValue);
+		t = t.replace(/<br>/gi, " ");
+	}
+	return t;
+};
+
+
 i2b2.h.Escape = function(inStrValue) {
 	if (typeof inStrValue == "number") {
 		var t = inStrValue.toString();
